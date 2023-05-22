@@ -1,11 +1,12 @@
 use std::{fs, path::PathBuf, process};
 
 use crate::{
-    errors::{fmt_report, BFError},
+    errors::{fmt_report, BFError, BFErrors},
     parser::Parser,
     tape::Tape,
     DisableFlags,
 };
+use bimap::BiMap;
 use miette::{miette, LabeledSpan, Report, SourceSpan};
 use pancurses::{endwin, initscr, noecho, Input, Window};
 
@@ -19,6 +20,9 @@ pub enum Instruction {
     Right(u128),
     Input,
     Output,
+
+    // For aliases
+    Goto(String),
 }
 
 /// A core program. This contains no special features, and is the result of
@@ -33,6 +37,10 @@ pub struct Program {
     /// Disabled flags
     flag: DisableFlags,
     window: Window,
+    /// Aliases
+    aliases: BiMap<String, u128>,
+    /// Parser
+    parser: Option<Parser>,
 }
 
 impl Program {
@@ -41,6 +49,7 @@ impl Program {
         instructions: Vec<(SourceSpan, Instruction)>,
         tape: Tape,
         flag: DisableFlags,
+        parser: Option<Parser>,
     ) -> Self {
         let window = initscr();
         Self {
@@ -49,6 +58,8 @@ impl Program {
             tape,
             flag,
             window,
+            aliases: BiMap::new(),
+            parser,
         }
     }
 
@@ -60,12 +71,44 @@ impl Program {
 
     pub fn parse(src: String, tape: Tape, flag: DisableFlags) -> Self {
         // Use parser to parse it
-        let instructions = Parser::parse(src.clone(), flag);
-        Self::new(src, instructions, tape, flag)
+        let mut parser = Parser::new(src.clone(), flag);
+        let instructions = parser.parse();
+        Self::new(src, instructions, tape, flag, Some(parser))
     }
 
     pub fn get_instructions(&self) -> &Vec<(SourceSpan, Instruction)> {
         &self.instructions
+    }
+
+    pub fn setup(&mut self) {
+        if let Some(parser) = &self.parser {
+            if !self.flag.disable_alloc {
+                self.run_prealloc(
+                    parser
+                        .get_aliases()
+                        .iter()
+                        .map(|f| f.to_owned())
+                        .collect::<Vec<_>>(),
+                )
+            }
+        }
+    }
+
+    pub fn run_prealloc(&mut self, aliases: Vec<String>) {
+        for alias in aliases {
+            self.assign_alias_address(alias);
+        }
+    }
+
+    fn assign_alias_address(&mut self, key: String) -> u128 {
+        // Work backwards until we find an empty spot
+        let mut index = self.tape.size() - 1;
+        while self.tape.get_value_at_index(index) != 0 || self.aliases.contains_right(&index) {
+            index -= 1;
+        }
+
+        self.aliases.insert(key.clone(), index);
+        index
     }
 
     fn run_one(&mut self, instruction: &Instruction) -> Result<(), BFError> {
@@ -103,6 +146,21 @@ impl Program {
             Instruction::Output => {
                 self.window.addch(self.tape.get_value() as char);
             }
+            Instruction::Goto(key) => {
+                let address = self.aliases.get_by_left(&key);
+                if let Some(address) = address {
+                    self.tape.set_pointer(*address);
+                } else if self.flag.disable_alloc {
+                    // Alloc was disabled so we need to assign at runtime
+                    let index = self.assign_alias_address(key);
+                    self.tape.set_pointer(index);
+                } else {
+                    return Err(BFError::new(
+                        BFErrors::RuntimeError,
+                        format!("Alias {} was not found and pre-alloc was not disabled. This may indicate an error in the compiler", key),
+                    ));
+                }
+            }
         }
 
         Ok(())
@@ -129,11 +187,7 @@ impl Program {
                     );
                     println!(
                         "{}",
-                        fmt_report(
-                            // (Into::<Report>::into(error.into_detailed(source_span)))
-                            //     .with_source_code(self.src.clone())
-                            (report).with_source_code(self.src.clone())
-                        )
+                        fmt_report((report).with_source_code(self.src.clone()))
                     );
                     process::exit(1);
                 }

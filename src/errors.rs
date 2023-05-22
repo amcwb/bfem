@@ -23,39 +23,8 @@ impl Display for BFError {
 }
 
 impl BFError {
-    pub fn into_detailed(&self, highlight: SourceSpan) -> BFDetailedError {
-        BFDetailedError {
-            error: self.error,
-            message: self.message.clone(),
-            highlight,
-        }
-    }
-}
-
-#[derive(Error, Debug, Diagnostic)]
-#[error("Oh no")]
-#[diagnostic()]
-pub struct BFDetailedError {
-    error: BFErrors,
-    message: String,
-
-    #[label("here")]
-    highlight: SourceSpan,
-}
-
-impl BFError {
     pub fn new(error: BFErrors, message: String) -> Self {
         Self { error, message }
-    }
-}
-
-impl BFDetailedError {
-    pub fn new(error: BFErrors, message: String, highlight: SourceSpan) -> Self {
-        Self {
-            error,
-            message,
-            highlight,
-        }
     }
 }
 
@@ -65,7 +34,6 @@ pub fn fmt_report(diag: Report) -> String {
     if std::env::var("STYLE").is_ok() {
         GraphicalReportHandler::new_themed(GraphicalTheme::unicode())
             .with_width(80)
-            .with_footer("this is a footer".into())
             .render_report(&mut out, diag.as_ref())
             .unwrap();
     } else if std::env::var("NARRATED").is_ok() {

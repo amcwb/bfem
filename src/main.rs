@@ -54,6 +54,9 @@ pub struct DisableFlags {
     /// Disable consecutive instruction optimisations
     #[arg(long)]
     disable_optimise: bool,
+    /// Disable alias pre-allocation
+    #[arg(long)]
+    disable_alloc: bool,
 }
 
 #[derive(Args)]
@@ -71,9 +74,13 @@ fn main() {
 
     match &cli.command {
         Commands::Compile(args) => {
+            let mut program = Program::read_file(args.path.clone(), Tape::new(cli.tape_flags), cli.disable_flags);
+            
+            println!("{:?}", program.get_instructions());
         },
         Commands::Run(args) => {
             let mut program = Program::read_file(args.path.clone(), Tape::new(cli.tape_flags), cli.disable_flags);
+            program.setup();
 
             program.run();
         }

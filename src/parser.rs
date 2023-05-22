@@ -1,78 +1,164 @@
 use crate::{program::Instruction, DisableFlags};
 use miette::SourceSpan;
+use std::collections::HashSet;
 
-pub struct Parser {}
+pub struct Parser {
+    src: String,
+    flag: DisableFlags,
+    index: usize,
+
+    // Get names
+    aliases: HashSet<String>,
+}
 
 impl Parser {
-    fn parse_one(
-        src: String,
-        mut index: usize,
-        flag: DisableFlags,
-    ) -> (usize, (SourceSpan, Instruction)) {
-        let character = src.chars().nth(index).unwrap();
-        let start_index = index;
+    pub fn new(src: String, flag: DisableFlags) -> Self {
+        Self {
+            src,
+            flag,
+            index: 0 as usize,
+            aliases: HashSet::new(),
+        }
+    }
+
+    pub fn get_aliases(&self) -> &HashSet<String> {
+        &self.aliases
+    }
+
+    fn parse_one(&mut self) -> (SourceSpan, Instruction) {
+        let character = self.src.chars().nth(self.index).unwrap();
+        let start_index = self.index;
         let instruction = match character {
             '+' => {
-                index += 1;
+                self.index += 1;
                 Instruction::Add(1)
             }
             '-' => {
-                index += 1;
+                self.index += 1;
                 Instruction::Subtract(1)
             }
             '>' => {
-                index += 1;
+                self.index += 1;
                 Instruction::Right(1)
             }
             '<' => {
-                index += 1;
+                self.index += 1;
                 Instruction::Left(1)
             }
             '[' => {
-                index += 1;
+                self.index += 1;
                 let mut instructions: Vec<(SourceSpan, Instruction)> = vec![];
-                let mut character = src.chars().nth(index).unwrap();
+                let mut character = self.src.chars().nth(self.index).unwrap();
 
                 // Keep going until we encounter close brackets
                 while character != ']' {
-                    let (new_index, instruction) = Parser::parse_one(src.clone(), index, flag);
-                    index = new_index;
+                    let instruction = self.parse_one();
                     instructions.push(instruction);
 
-                    character = src.chars().nth(index).unwrap();
+                    character = self.src.chars().nth(self.index).unwrap();
                 }
 
                 // Skip over end loop
-                index += 1;
+                self.index += 1;
 
                 Instruction::Loop(instructions)
             }
             '.' => {
-                index += 1;
+                self.index += 1;
                 Instruction::Output
             }
             ',' => {
-                index += 1;
+                self.index += 1;
                 Instruction::Input
             }
-            '{' if !flag.disable_aliases => todo!(),
+            '{' if !self.flag.disable_aliases => {
+                self.index += 1;
+                let mut name = String::new();
+                let mut character = self.src.chars().nth(self.index).unwrap();
+
+                // Keep going until we encounter close brackets
+                while character != '}' {
+                    name.push(character);
+                    self.index += 1;
+                    character = self.src.chars().nth(self.index).unwrap();
+                }
+
+                // Skip over end loop
+                self.index += 1;
+                self.aliases.insert(name.clone());
+                Instruction::Goto(name)
+            }
             _ => panic!("Unrecognised character: {}", character),
         };
 
-        (
-            index,
-            ((start_index, index - start_index).into(), instruction),
-        )
+        ((start_index, self.index - start_index).into(), instruction)
     }
 
-    pub fn parse(src: String, flag: DisableFlags) -> Vec<(SourceSpan, Instruction)> {
-        let mut index: usize = 0;
+    fn is_instruction_consecutive(instruction: &Instruction) -> bool {
+        match instruction {
+            Instruction::Goto(_)
+            | Instruction::Input
+            | Instruction::Output
+            | Instruction::Loop(_) => false,
+            _ => true,
+        }
+    }
+
+    fn set_count(instruction: &Instruction, count: usize) -> Instruction {
+        match instruction {
+            Instruction::Add(value) => Instruction::Add(count as u8),
+            Instruction::Subtract(value) => Instruction::Subtract(count as u8),
+            Instruction::Left(value) => Instruction::Left(count as u128),
+            Instruction::Right(value) => Instruction::Right(count as u128),
+            _ => instruction.clone()
+        }
+    }
+
+    pub fn is_consecutive_okay(left: &Instruction, right: &Instruction) -> bool {
+        Parser::is_instruction_consecutive(left)
+            && Parser::is_instruction_consecutive(right)
+            && std::mem::discriminant(left) == std::mem::discriminant(right)
+    }
+
+    pub fn optimise_consecutive(
+        instructions: &mut Vec<(SourceSpan, Instruction)>,
+    ) -> Vec<(SourceSpan, Instruction)> {
+        let mut index = 0 as usize;
+        let mut optimised: Vec<(SourceSpan, Instruction)> = vec![];
+
+        // Must be -1 as we need to not attempt to stretch past the last one
+        while index < instructions.len() - 1 {
+            let mut count = 1;
+
+            let (start_span, start_instruction) = instructions[index].clone();
+            let (_end_span, mut end_instruction) = instructions[index + count].clone();
+
+            while (index + count) < instructions.len() - 1
+                && Parser::is_consecutive_okay(&start_instruction, &end_instruction)
+            {
+                count += 1;
+                let (_new_end_span, new_end_instruction) = instructions[index + count].clone();
+                end_instruction = new_end_instruction;
+            }
+            
+            optimised.push(((start_span.offset(), count).into(), Parser::set_count(&start_instruction, count)));
+
+            index += count;
+        }
+
+        optimised
+    }
+
+    pub fn parse(&mut self) -> Vec<(SourceSpan, Instruction)> {
         let mut instructions: Vec<(SourceSpan, Instruction)> = vec![];
 
-        while index < src.len() {
-            let (new_index, instruction) = Parser::parse_one(src.clone(), index, flag);
-            index = new_index;
+        while self.index < self.src.len() {
+            let instruction = self.parse_one();
             instructions.push(instruction);
+        }
+
+        if !self.flag.disable_optimise {
+            instructions = Parser::optimise_consecutive(&mut instructions);
         }
 
         instructions

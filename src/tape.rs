@@ -1,6 +1,9 @@
 use clap::ValueEnum;
 
-use crate::{errors::{BFError, BFErrors}, TapeFlags};
+use crate::{
+    errors::{BFError, BFErrors},
+    TapeFlags,
+};
 
 fn zeros(size: u128) -> Vec<u8> {
     vec![0; size as usize]
@@ -43,7 +46,7 @@ impl Default for Tape {
     fn default() -> Self {
         Self {
             size: 30000,
-            cells: Default::default(),
+            cells: zeros(30000),
             tape_behaviour: TapeMode::Circular,
             cell_behaviour: CellMode::Circular,
             pointer: 0,
@@ -56,7 +59,7 @@ impl Tape {
     pub fn new(flags: TapeFlags) -> Self {
         Self {
             size: flags.tape_size,
-            cells: Default::default(),
+            cells: zeros(flags.tape_size),
             tape_behaviour: flags.tape_mode,
             cell_behaviour: flags.cell_mode,
             pointer: 0,
@@ -76,8 +79,28 @@ impl Tape {
         self.cells[self.pointer as usize]
     }
 
+    pub fn get_value_at_index(&self, address: u128) -> u8 {
+        self.cells[address as usize]
+    }
+
+    pub fn set_value_at_index(&mut self, address: u128, value: u8) {
+        self.cells[address as usize] = value;
+    }
+
     pub fn set_value(&mut self, value: u8) {
         self.cells[self.pointer as usize] = value;
+    }
+
+    pub fn get_pointer(&self) -> u128 {
+        self.pointer
+    }
+
+    pub fn set_pointer(&mut self, value: u128) {
+        self.pointer = value;
+    }
+
+    pub fn size(&self) -> u128 {
+        self.cells.len() as u128
     }
 
     pub fn add(&mut self, count: u8) -> Result<(), BFError> {
@@ -93,16 +116,24 @@ impl Tape {
                     .unwrap_or(u8::MAX);
                 Ok(())
             }
-            CellMode::Panic => Err(BFError::new(
-                BFErrors::RuntimeError,
-                format!(
-                    "Cell {} (value {}) would go above {} if {} were added",
-                    self.pointer,
-                    self.cells[self.pointer as usize],
-                    u8::MAX,
-                    count
-                ),
-            )),
+            CellMode::Panic => {
+                let (pointer, overflow) = self.cells[self.pointer as usize].overflowing_add(count);
+                if overflow {
+                    Err(BFError::new(
+                        BFErrors::RuntimeError,
+                        format!(
+                            "Cell {} (value {}) would go above {} if {} were added",
+                            self.pointer,
+                            self.cells[self.pointer as usize],
+                            0,
+                            count
+                        ),
+                    ))
+                } else {
+                    self.cells[self.pointer as usize] = pointer;
+                    Ok(())
+                }
+            }
         }
     }
 
@@ -119,13 +150,24 @@ impl Tape {
                     .unwrap_or(0);
                 Ok(())
             }
-            CellMode::Panic => Err(BFError::new(
-                BFErrors::RuntimeError,
-                format!(
-                    "Cell {} (value {}) would go below {} if {} were subtracted",
-                    self.pointer, self.cells[self.pointer as usize], 0, count
-                ),
-            )),
+            CellMode::Panic => {
+                let (pointer, overflow) = self.cells[self.pointer as usize].overflowing_sub(count);
+                if overflow {
+                    Err(BFError::new(
+                        BFErrors::RuntimeError,
+                        format!(
+                            "Cell {} (value {}) would go below {} if {} were subtracted",
+                            self.pointer,
+                            self.cells[self.pointer as usize],
+                            u8::MAX,
+                            count
+                        ),
+                    ))
+                } else {
+                    self.cells[self.pointer as usize] = pointer;
+                    Ok(())
+                }
+            },
         }
     }
 
@@ -151,13 +193,21 @@ impl Tape {
 
                 Ok(())
             }
-            TapeMode::Panic => Err(BFError::new(
-                BFErrors::RuntimeError,
-                format!(
-                    "Tape pointer would be below {} if moved left {} spaces from {}",
-                    0, count, self.pointer
-                ),
-            )),
+            TapeMode::Panic => {
+                let (pointer, overflow) = self.pointer.overflowing_sub(count);
+                if overflow {
+                    Err(BFError::new(
+                        BFErrors::RuntimeError,
+                        format!(
+                            "Tape pointer would be below {} if moved left {} spaces from {}",
+                            0, count, self.pointer
+                        ),
+                    ))
+                } else {
+                    self.pointer = pointer;
+                    Ok(())
+                }
+            }
         }
     }
 
@@ -181,15 +231,23 @@ impl Tape {
 
                 Ok(())
             }
-            TapeMode::Panic => Err(BFError::new(
-                BFErrors::RuntimeError,
-                format!(
-                    "Tape pointer would be below {} if moved right {} spaces from {}",
-                    self.cells.len(),
-                    count,
-                    self.pointer
-                ),
-            )),
+            TapeMode::Panic => {
+                let (pointer, overflow) = self.pointer.overflowing_add(count);
+                if overflow || pointer > self.size {
+                    Err(BFError::new(
+                        BFErrors::RuntimeError,
+                        format!(
+                            "Tape pointer would be above {} if moved right {} spaces from {}",
+                            self.cells.len(),
+                            count,
+                            self.pointer
+                        ),
+                    ))
+                } else {
+                    self.pointer = pointer;
+                    Ok(())
+                }
+            }
         }
     }
 }
