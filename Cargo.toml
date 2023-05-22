@@ -8,6 +8,6 @@ edition = "2021"
 [dependencies]
 bimap = "0.6.3"
 clap = { version = "4.3", features = ["derive"] }
+getch = "0.3.1"
 miette = { version = "5.9.0", features = ["fancy"] }
-pancurses = "0.17"
 thiserror = "1.0.40"

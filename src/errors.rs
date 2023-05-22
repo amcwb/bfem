@@ -5,6 +5,8 @@ use miette::{
 };
 use thiserror::Error;
 
+use crate::program::Instruction;
+
 #[derive(Debug, Copy, Clone)]
 pub enum BFErrors {
     RuntimeError,
@@ -28,14 +30,18 @@ impl BFError {
     }
 }
 
-pub fn fmt_report(diag: Report) -> String {
+pub fn fmt_report(diag: Report, instruction: Option<&Instruction>) -> String {
     let mut out = String::new();
     // Mostly for dev purposes.
     if std::env::var("STYLE").is_ok() {
-        GraphicalReportHandler::new_themed(GraphicalTheme::unicode())
-            .with_width(80)
-            .render_report(&mut out, diag.as_ref())
-            .unwrap();
+        let mut themed =
+            GraphicalReportHandler::new_themed(GraphicalTheme::unicode()).with_width(80);
+
+        if let Some(instruction) = instruction {
+            themed = themed.with_footer(format!("current instruction: {:?}", instruction))
+        }
+
+        themed.render_report(&mut out, diag.as_ref()).unwrap();
     } else if std::env::var("NARRATED").is_ok() {
         NarratableReportHandler::new()
             .render_report(&mut out, diag.as_ref())

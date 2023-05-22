@@ -28,6 +28,8 @@ enum Commands {
     Compile(CompileArgs),
     /// Run the given file
     Run(RunArgs),
+    /// Show a detailed preview of parser info
+    Explain(RunArgs)
 }
 
 #[derive(Args)]
@@ -83,6 +85,11 @@ fn main() {
             program.setup();
 
             program.run();
+        }
+        Commands::Explain(args) => {
+            let mut program = Program::read_file(args.path.clone(), Tape::new(cli.tape_flags), cli.disable_flags);
+
+            program.info();
         }
     }
 }

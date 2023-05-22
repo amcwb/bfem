@@ -26,7 +26,13 @@ impl Parser {
     }
 
     fn parse_one(&mut self) -> (SourceSpan, Instruction) {
-        let character = self.src.chars().nth(self.index).unwrap();
+        let mut character = self.src.chars().nth(self.index).unwrap();
+        // Skip whitespaces
+        while character.is_whitespace() {
+            self.index += 1;
+            character = self.src.chars().nth(self.index).unwrap();
+        }
+
         let start_index = self.index;
         let instruction = match character {
             '+' => {
@@ -110,7 +116,7 @@ impl Parser {
             Instruction::Subtract(_) => Instruction::Subtract(count as u8),
             Instruction::Left(_) => Instruction::Left(count as u128),
             Instruction::Right(_) => Instruction::Right(count as u128),
-            _ => instruction.clone()
+            _ => instruction.clone(),
         }
     }
 
@@ -127,24 +133,37 @@ impl Parser {
         let mut optimised: Vec<(SourceSpan, Instruction)> = vec![];
 
         // Must be -1 as we need to not attempt to stretch past the last one
-        while index < instructions.len() - 1 {
+        while index < instructions.len() {
             let mut count = 1;
 
             let (start_span, start_instruction) = instructions[index].clone();
-            let (_end_span, mut end_instruction) = instructions[index + count].clone();
+            if let Instruction::Loop(mut inner_instructions) = start_instruction {
+                optimised.push((
+                    (start_span.offset(), inner_instructions.len()).into(),
+                    Instruction::Loop(Parser::optimise_consecutive(&mut inner_instructions)),
+                ));
 
-            while (index + count) < instructions.len()
-                && Parser::is_consecutive_okay(&start_instruction, &end_instruction)
-            {
-                let (_new_end_span, new_end_instruction) = instructions[index + count].clone();
-                
-                end_instruction = new_end_instruction;
-                count += 1;
+                index += count;
+            } else {
+                while (index + count) < instructions.len() -1
+                {
+                    let (_end_span, mut end_instruction) = instructions[index + count].clone();
+                    if !Parser::is_consecutive_okay(&start_instruction, &end_instruction) {
+                        break;
+                    }
+                    count += 1;
+                    let (_new_end_span, new_end_instruction) = instructions[index + count].clone();
+
+                    end_instruction = new_end_instruction;
+                }
+
+                optimised.push((
+                    (start_span.offset(), count).into(),
+                    Parser::set_count(&start_instruction, count),
+                ));
+
+                index += count;
             }
-            
-            optimised.push(((start_span.offset(), count).into(), Parser::set_count(&start_instruction, count)));
-
-            index += count;
         }
 
         optimised

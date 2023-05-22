@@ -7,8 +7,8 @@ use crate::{
     DisableFlags,
 };
 use bimap::BiMap;
-use miette::{miette, LabeledSpan, Report, SourceSpan};
-use pancurses::{endwin, initscr, noecho, Input, Window};
+use getch::Getch;
+use miette::{miette, LabeledSpan, NamedSource, SourceSpan};
 
 /// All instructions with optimisations for count
 #[derive(Clone, Debug)]
@@ -28,6 +28,7 @@ pub enum Instruction {
 /// A core program. This contains no special features, and is the result of
 /// BFEM code being parsed.
 pub struct Program {
+    path: PathBuf,
     /// Source.
     src: String,
     /// Instructions.
@@ -36,7 +37,7 @@ pub struct Program {
     pub tape: Tape,
     /// Disabled flags
     flag: DisableFlags,
-    window: Window,
+    getch: Getch,
     /// Aliases
     aliases: BiMap<String, u128>,
     /// Parser
@@ -45,35 +46,37 @@ pub struct Program {
 
 impl Program {
     pub fn new(
+        path: PathBuf,
         src: String,
         instructions: Vec<(SourceSpan, Instruction)>,
         tape: Tape,
         flag: DisableFlags,
         parser: Option<Parser>,
     ) -> Self {
-        let window = initscr();
+        let getch = Getch::new();
         Self {
+            path,
             src,
             instructions,
             tape,
             flag,
-            window,
+            getch,
             aliases: BiMap::new(),
             parser,
         }
     }
 
     pub fn read_file(path: PathBuf, tape: Tape, flag: DisableFlags) -> Self {
-        let file = fs::read_to_string(path).expect("File not found");
+        let file = fs::read_to_string(path.clone()).expect("File not found");
 
-        Program::parse(file, tape, flag)
+        Program::parse(path, file, tape, flag)
     }
 
-    pub fn parse(src: String, tape: Tape, flag: DisableFlags) -> Self {
+    pub fn parse(path: PathBuf, src: String, tape: Tape, flag: DisableFlags) -> Self {
         // Use parser to parse it
         let mut parser = Parser::new(src.clone(), flag);
         let instructions = parser.parse();
-        Self::new(src, instructions, tape, flag, Some(parser))
+        Self::new(path, src, instructions, tape, flag, Some(parser))
     }
 
     pub fn get_instructions(&self) -> &Vec<(SourceSpan, Instruction)> {
@@ -133,18 +136,18 @@ impl Program {
                 self.tape.right(count)?;
             }
             Instruction::Input => {
-                let mut character: Option<char> = None;
+                let mut character: Option<u8> = None;
                 while character.is_none() {
-                    match self.window.getch() {
-                        Some(Input::Character(c)) => character = Some(c),
+                    match self.getch.getch() {
+                        Ok(c) => character = Some(c),
                         _ => (),
                     }
                 }
 
-                self.tape.set_value(character.unwrap() as u8)
+                self.tape.set_value(character.unwrap())
             }
             Instruction::Output => {
-                self.window.addch(self.tape.get_value() as char);
+                print!("{}", self.tape.get_value() as char);
             }
             Instruction::Goto(key) => {
                 let address = self.aliases.get_by_left(&key);
@@ -187,11 +190,62 @@ impl Program {
                     );
                     println!(
                         "{}",
-                        fmt_report((report).with_source_code(self.src.clone()))
+                        fmt_report(
+                            (report).with_source_code(NamedSource::new(
+                                self.path.to_str().unwrap(),
+                                self.src.clone()
+                            )),
+                            Some(&instruction)
+                        )
                     );
                     process::exit(1);
                 }
             }
         }
+    }
+
+    fn produce_labeled_spans(instructions: &Vec<(SourceSpan, Instruction)>) -> Vec<LabeledSpan> {
+        let mut labeled_spans: Vec<LabeledSpan> = vec![];
+        for (source_span, instruction) in instructions {
+            let info = match instruction {
+                Instruction::Add(value) => Some(format!("Add {}", value)),
+                Instruction::Subtract(value) => Some(format!("Subtract {}", value)),
+                Instruction::Loop(layer_instructions) => {
+                    labeled_spans.append(&mut Program::produce_labeled_spans(layer_instructions));
+
+                    None
+                }
+                Instruction::Left(value) => Some(format!("Move left {} spaces", value)),
+                Instruction::Right(value) => Some(format!("Move right {} spaces", value)),
+                Instruction::Input => Some("Take input".to_string()),
+                Instruction::Output => Some("Write output".to_string()),
+                Instruction::Goto(name) => Some(format!("Go to alias {}", name)),
+            };
+
+            if let Some(info) = info {
+                labeled_spans.push(LabeledSpan::new_with_span(Some(info), source_span.clone()));
+            }
+        }
+
+        labeled_spans
+    }
+
+    pub fn info(&mut self) {
+        let mut labeled_spans: Vec<LabeledSpan> =
+            Program::produce_labeled_spans(&self.instructions);
+
+        let report = miette!(labels = labeled_spans, "{}", "Your info sheet");
+        println!(
+            "{}",
+            fmt_report(
+                (report).with_source_code(NamedSource::new(
+                    self.path.to_str().unwrap(),
+                    self.src.clone()
+                )),
+                None
+            )
+        );
+
+        process::exit(0);
     }
 }
