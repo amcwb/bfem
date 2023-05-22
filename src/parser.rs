@@ -144,6 +144,13 @@ impl Parser {
                 ));
 
                 index += count;
+            } else if let Instruction::Goto(key) = start_instruction {
+                optimised.push((
+                    (start_span.offset(), key.len() + 2).into(),
+                    Instruction::Goto(key),
+                ));
+
+                index += count;
             } else {
                 while (index + count) < instructions.len() -1
                 {

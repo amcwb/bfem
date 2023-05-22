@@ -1,3 +1,5 @@
+use std::ops::Rem;
+
 use clap::ValueEnum;
 
 use crate::{
@@ -186,9 +188,9 @@ impl Tape {
                 if self.pointer >= count {
                     self.pointer -= count;
                 } else {
-                    self.pointer = 0;
                     // Create more cells
-                    self.cells.splice(0..0, zeros(count).iter().cloned());
+                    self.cells.splice(0..0, zeros(count - self.pointer).iter().cloned());
+                    self.pointer = 0;
                 }
 
                 Ok(())
@@ -214,26 +216,26 @@ impl Tape {
     pub fn right(&mut self, count: u128) -> Result<(), BFError> {
         match self.tape_behaviour {
             TapeMode::Circular => {
-                if self.pointer >= count {
-                    self.pointer -= count;
-                } else {
-                    self.pointer = self.cells.len() as u128 - (count - self.pointer)
-                }
+                let index = self.pointer.overflowing_add(count).0;
+                self.pointer = index.rem(self.size);
 
                 Ok(())
             }
             TapeMode::Append => {
                 self.pointer += count;
+                if self.pointer < self.cells.len() as u128 {
+                    return Ok(());
+                }
 
                 // Create more cells
-                let mut data = zeros(count);
+                let mut data = zeros(self.pointer - self.cells.len() as u128);
                 self.cells.append(&mut data);
 
                 Ok(())
             }
             TapeMode::Panic => {
                 let (pointer, overflow) = self.pointer.overflowing_add(count);
-                if overflow || pointer > self.size {
+                if overflow || pointer >= self.size {
                     Err(BFError::new(
                         BFErrors::RuntimeError,
                         format!(

@@ -190,13 +190,10 @@ impl Program {
                     );
                     println!(
                         "{}",
-                        fmt_report(
-                            (report).with_source_code(NamedSource::new(
-                                self.path.to_str().unwrap(),
-                                self.src.clone()
-                            )),
-                            Some(&instruction)
-                        )
+                        fmt_report((report).with_source_code(NamedSource::new(
+                            self.path.to_str().unwrap(),
+                            self.src.clone()
+                        )))
                     );
                     process::exit(1);
                 }
@@ -231,19 +228,16 @@ impl Program {
     }
 
     pub fn info(&mut self) {
-        let mut labeled_spans: Vec<LabeledSpan> =
+        let labeled_spans: Vec<LabeledSpan> =
             Program::produce_labeled_spans(&self.instructions);
 
         let report = miette!(labels = labeled_spans, "{}", "Your info sheet");
         println!(
             "{}",
-            fmt_report(
-                (report).with_source_code(NamedSource::new(
-                    self.path.to_str().unwrap(),
-                    self.src.clone()
-                )),
-                None
-            )
+            fmt_report((report).with_source_code(NamedSource::new(
+                self.path.to_str().unwrap(),
+                self.src.clone()
+            )))
         );
 
         process::exit(0);
