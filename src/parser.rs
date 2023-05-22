@@ -106,10 +106,10 @@ impl Parser {
 
     fn set_count(instruction: &Instruction, count: usize) -> Instruction {
         match instruction {
-            Instruction::Add(value) => Instruction::Add(count as u8),
-            Instruction::Subtract(value) => Instruction::Subtract(count as u8),
-            Instruction::Left(value) => Instruction::Left(count as u128),
-            Instruction::Right(value) => Instruction::Right(count as u128),
+            Instruction::Add(_) => Instruction::Add(count as u8),
+            Instruction::Subtract(_) => Instruction::Subtract(count as u8),
+            Instruction::Left(_) => Instruction::Left(count as u128),
+            Instruction::Right(_) => Instruction::Right(count as u128),
             _ => instruction.clone()
         }
     }
@@ -133,12 +133,13 @@ impl Parser {
             let (start_span, start_instruction) = instructions[index].clone();
             let (_end_span, mut end_instruction) = instructions[index + count].clone();
 
-            while (index + count) < instructions.len() - 1
+            while (index + count) < instructions.len()
                 && Parser::is_consecutive_okay(&start_instruction, &end_instruction)
             {
-                count += 1;
                 let (_new_end_span, new_end_instruction) = instructions[index + count].clone();
+                
                 end_instruction = new_end_instruction;
+                count += 1;
             }
             
             optimised.push(((start_span.offset(), count).into(), Parser::set_count(&start_instruction, count)));

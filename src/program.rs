@@ -180,7 +180,7 @@ impl Program {
                     let report = miette!(
                         labels = vec![LabeledSpan::new_with_span(
                             Some("error occurs here".to_string()),
-                            source_span.offset()
+                            source_span
                         )],
                         "{}",
                         error.message
